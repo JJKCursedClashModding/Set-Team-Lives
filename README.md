@@ -22,7 +22,7 @@ The hooking core (`cpp/force_gauge.cpp`, `cpp/detour.hpp`) is shared.
 
 ## Files
 
-- `cpp/force_gauge.cpp` — detours, mode table, INI/log, F8 toggle.
+- `cpp/force_gauge.cpp` — detours, mode table, INI/log (always active once installed).
 - `cpp/asi_entry.cpp` — `DllMain` + install thread (readiness retry via prologue guards).
 - `cpp/detour.hpp` — self-contained inline hook engine.
 - `build.ps1` — builds `dist\SetTeamLives.asi`.
@@ -59,7 +59,6 @@ for `.asi` files on some versions — the exe folder is the guaranteed location.
 ```ini
 [Gauge]
 Lives=6            ; 1-99, vanilla is 4
-Enabled=1          ; 0 = completely vanilla (F8 toggles at runtime)
 Modes=Free,PvP     ; All or a comma-separated mode list
 ```
 

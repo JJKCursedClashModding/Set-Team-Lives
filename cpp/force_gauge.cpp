@@ -8,8 +8,8 @@
 // Data files live flat next to the .asi itself (no subfolder):
 // gauge_lives.ini (auto-written with defaults when missing) and force_gauge.log.
 //
-// Config (gauge_lives.ini, [Gauge]): Enabled=1, Lives=6, Modes=Free,PvP.
-// F8 toggles at runtime.
+// Config (gauge_lives.ini, [Gauge]): Lives=6, Modes=Free,PvP.
+// Always active once installed (no toggle).
 //
 // Static reverse-engineering summary (see lives-team-gauge-findings.md sections 6/9):
 //
@@ -92,7 +92,6 @@ namespace
     using SetMaxFn = void (*)(void* manager, unsigned char key, int max_value);
     using SetupFn = char (*)(void* battle_phase);
 
-    constexpr int kToggleKey = 0x77; // F8
     constexpr int kMaxModes = 16;
 
     struct ModeEntry
@@ -109,7 +108,6 @@ namespace
     };
 
     std::atomic<bool> g_installed{false};
-    std::atomic<bool> g_enabled{true};
     std::atomic<int> g_lives{6};
     std::atomic<bool> g_all_modes{true};
     std::atomic<std::uintptr_t> g_current_vtable_rva{0};
@@ -193,8 +191,7 @@ namespace
         out << L"[Gauge]\n"
                L"; Raise the Team Gauge (\"lives\") to this value at battle start (vanilla is 4).\n"
                L"Lives=6\n\n"
-               L"; 0 = leave the game completely vanilla. F8 toggles at runtime.\n"
-               L"Enabled=1\n\n"
+               L"; The mod is always active once installed.\n"
                L"; Comma-separated battle modes that get the extra lives (case-insensitive):\n"
                L";   All | Test, Demo, Story, Free, PvP, PvESolo, PvETag, Replay, VisualLobby, Arcade, AgingOnline\n"
                L"Modes=Free,PvP\n";
@@ -356,8 +353,7 @@ namespace
                 swprintf_s(buf, L"[SetTeamLives] battle flow: mode=%s caller=0x%llX vtable=0x%llX flag=%d rate=%.3f %s",
                            mode_name(mode), static_cast<unsigned long long>(caller_rva),
                            static_cast<unsigned long long>(vtable_rva), flag, rate,
-                           (g_enabled.load(std::memory_order_relaxed) && current_mode_allowed()) ? L"(applying)"
-                                                                                              : L"(vanilla)");
+                           current_mode_allowed() ? L"(applying)" : L"(vanilla)");
                 log_line(buf);
             }
         }
@@ -367,8 +363,7 @@ namespace
     __declspec(noinline) void hook_set_current(void* manager, unsigned char key, int value, char force)
     {
         const int lives = g_lives.load(std::memory_order_relaxed);
-        if (force != '\0' && key <= 1 && value >= 0 && value < lives && g_enabled.load(std::memory_order_relaxed) &&
-            current_mode_allowed())
+        if (force != '\0' && key <= 1 && value >= 0 && value < lives && current_mode_allowed())
         {
             // The map entry already exists (the game called SetMax just before),
             // so this only rewrites the clamp ceiling to the configured value.
@@ -376,24 +371,6 @@ namespace
             value = lives;
         }
         g_orig_set_current(manager, key, value, force);
-    }
-
-    DWORD WINAPI hotkey_thread(LPVOID param)
-    {
-        const int vk = static_cast<int>(reinterpret_cast<std::intptr_t>(param));
-        bool was_down = false;
-        for (;;)
-        {
-            const bool down = (GetAsyncKeyState(vk) & 0x8000) != 0;
-            if (down && !was_down)
-            {
-                const bool enabled = !g_enabled.load();
-                g_enabled.store(enabled);
-                log_line(enabled ? L"[SetTeamLives] hotkey: ON" : L"[SetTeamLives] hotkey: OFF");
-            }
-            was_down = down;
-            Sleep(50);
-        }
     }
 } // namespace
 
@@ -433,7 +410,6 @@ namespace fgl
             ensure_default_ini(ini_path);
             const int lives = read_int_ini(ini_path, L"Gauge", L"Lives", 6);
             g_lives.store((lives >= 1 && lives <= 99) ? lives : 6, std::memory_order_relaxed);
-            g_enabled.store(read_int_ini(ini_path, L"Gauge", L"Enabled", 1) != 0, std::memory_order_relaxed);
             parse_modes(ini_path);
         }
 
@@ -483,9 +459,6 @@ namespace fgl
         g_orig_setup = reinterpret_cast<SetupFn>(g_setup_trampoline);
         g_installed.store(true);
 
-        CreateThread(nullptr, 0, &hotkey_thread, reinterpret_cast<LPVOID>(static_cast<std::intptr_t>(kToggleKey)), 0,
-                     nullptr);
-
         std::wstring modes;
         if (g_all_modes.load())
         {
@@ -503,8 +476,8 @@ namespace fgl
             }
         }
         wchar_t buf[320]{};
-        swprintf_s(buf, L"[SetTeamLives] installed (asi): enabled=%d lives=%d modes=%s data=%s (F8 toggles)",
-                   g_enabled.load() ? 1 : 0, g_lives.load(), modes.c_str(), data_root().c_str());
+        swprintf_s(buf, L"[SetTeamLives] installed (asi): lives=%d modes=%s data=%s",
+                   g_lives.load(), modes.c_str(), data_root().c_str());
         log_line(buf);
         return true;
     }
